@@ -16,6 +16,8 @@ class SocketClientConfig {
     this.inactivityTimeout = const Duration(seconds: 30),
     this.delayBetweenReconnectionAttempts = const Duration(seconds: 5),
     this.initPayload,
+    this.onDisconnected,
+    this.onConnected,
   });
 
   /// Whether to reconnect to the server after detecting connection loss.
@@ -42,7 +44,22 @@ class SocketClientConfig {
   /// Can be null, but must be a valid json structure if provided.
   final dynamic initPayload;
 
+  final Function onDisconnected;
+  final Function onConnected;
+
   InitOperation get initOperation => InitOperation(initPayload);
+
+  SocketClientConfig copyWith({ dynamic initPayload }) {
+    return SocketClientConfig(
+      autoReconnect: autoReconnect,
+      queryAndMutationTimeout: queryAndMutationTimeout,
+      inactivityTimeout: inactivityTimeout,
+      delayBetweenReconnectionAttempts: delayBetweenReconnectionAttempts,
+      initPayload: initPayload ?? this.initPayload,
+      onDisconnected: onDisconnected,
+      onConnected: onConnected
+    );
+  }
 }
 
 enum SocketConnectionState { NOT_CONNECTED, CONNECTING, CONNECTED }
@@ -69,7 +86,7 @@ class SocketClient {
 
   Uint8List randomBytesForUuid;
   final String url;
-  final SocketClientConfig config;
+  SocketClientConfig config;
   final Iterable<String> protocols;
   final BehaviorSubject<SocketConnectionState> _connectionStateController =
       BehaviorSubject<SocketConnectionState>();
@@ -100,6 +117,11 @@ class SocketClient {
         protocols: protocols,
       );
       _connectionStateController.value = SocketConnectionState.CONNECTED;
+
+      if (config.onConnected != null) {
+        config = config.copyWith(initPayload: await config.onConnected());
+      }
+
       print('Connected to websocket.');
       _write(config.initOperation);
 
@@ -145,6 +167,10 @@ class SocketClient {
     _reconnectTimer?.cancel();
     _keepAliveSubscription?.cancel();
     _messageSubscription?.cancel();
+
+    if (config.onDisconnected != null) {
+      config.onDisconnected();
+    }
 
     if (_connectionStateController.isClosed) {
       return;
